@@ -4,8 +4,8 @@ import time
 import cv2
 import numpy as np
 
-SEGMENTATION_DIR = "/home/Cake/Documentos/UFRB/TCC/SubPipeMini/DATA/Segmentation"
-MASK_YOLO_DIR = '/home/Cake/Documentos/UFRB/TCC/SubPipeMini/DATA/yolo_masks'
+SEGMENTATION_DIR = "/home/Cake/Documentos/UFRB/TCC/yolo_testes_subpipe/dataset/original_masks"
+MASK_YOLO_DIR = '/home/Cake/Documentos/UFRB/TCC/yolo_testes_subpipe/dataset/yolo_masks'
 CLASS_PIPE_LABEL = 0 
 
 os.makedirs(MASK_YOLO_DIR, exist_ok=True)

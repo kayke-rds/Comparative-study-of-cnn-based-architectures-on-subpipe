@@ -1,0 +1,5 @@
+names:
+  0: pipe
+path: /home/Cake/Documentos/UFRB/TCC/yolo_testes_subpipe/yolo_dataset_enhanced
+train: images/train
+val: images/val
