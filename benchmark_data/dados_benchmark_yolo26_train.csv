@@ -1,0 +1,10 @@
+# started on Mon Aug  3 19:20:02 2026
+
+214327965;;page-faults;10526102392892;100,00;;
+2306839;;context-switches;10526102422177;100,00;;
+58857;;cpu-migrations;10526102435653;100,00;;
+27861214669907;;L1-dcache-loads;10526102445782;100,00;;
+720381444442;;L1-dcache-load-misses;10526102454698;100,00;;
+6119532436875;;L1-icache-loads;10526102466150;100,00;;
+<not supported>;;LLC-loads;0;100,00;;
+<not supported>;;LLC-load-misses;0;100,00;;
