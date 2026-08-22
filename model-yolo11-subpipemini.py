@@ -2,12 +2,12 @@ from ultralytics import YOLO
 
 def main():
     # 1. Carrega os melhores pesos da rodada anterior (results_4)
-    model = YOLO('yolo11n-seg.pt')
+    model = YOLO('./yolo_base_models/yolo11n-seg.pt')
 
     # 2. Executa o fine-tuning estendido
     results = model.train(
         data="./yolo_dataset_enhanced/data.yaml",
-        epochs=200,
+        epochs=150,
         imgsz=640,
         seed=42,
         batch=16,

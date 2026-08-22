@@ -2,12 +2,12 @@ from ultralytics import YOLO
 
 def main():
     # 1. Carrega o modelo pré-treinado de segmentação
-    model = YOLO("yolo26n-seg.pt") 
+    model = YOLO("./yolo_base_models/yolo26n-seg.pt")
 
     # 2. Inicia o treinamento
     results = model.train(
         data="./yolo_dataset_enhanced/data.yaml",
-        epochs=200,
+        epochs=150,
         imgsz=640,
         seed=42,
         batch=16,
