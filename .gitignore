@@ -1,8 +1,6 @@
 .zed
 __pycache__
 dataset
-yolo_dataset
-yolo_dataset_enhanced
 venv
 runs
 scripts_benchmark

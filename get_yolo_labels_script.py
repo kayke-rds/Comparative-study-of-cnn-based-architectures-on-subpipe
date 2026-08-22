@@ -4,9 +4,9 @@ import time
 import cv2
 import numpy as np
 
-SEGMENTATION_DIR = "/home/Cake/Documentos/UFRB/TCC/yolo_testes_subpipe/dataset/original_masks"
-MASK_YOLO_DIR = '/home/Cake/Documentos/UFRB/TCC/yolo_testes_subpipe/dataset/yolo_masks'
-CLASS_PIPE_LABEL = 0 
+SEGMENTATION_DIR = "./dataset/subpipe/masks"
+MASK_YOLO_DIR = './dataset/subpipe/yolo_masks'
+CLASS_PIPE_LABEL = 0
 
 os.makedirs(MASK_YOLO_DIR, exist_ok=True)
 
@@ -22,14 +22,14 @@ for idx, mask_path in enumerate(masks_paths, start=1):
     # MUDANÇA 1: Carregar como imagem COLORIDA (BGR)
     mask_bgr = cv2.imread(mask_path, cv2.IMREAD_COLOR)
     if mask_bgr is None:
-        continue        
+        continue
 
     height, width, _ = mask_bgr.shape
 
     # MUDANÇA 2: Converter para o espaço de cores HSV (muito melhor para isolar o Vermelho)
     hsv = cv2.cvtColor(mask_bgr, cv2.COLOR_BGR2HSV)
 
-    # No HSV, o vermelho fica nas extremidades do espectro. 
+    # No HSV, o vermelho fica nas extremidades do espectro.
     # Definimos os limites inferiores e superiores para capturar tons de vermelho.
     lower_red1 = np.array([0, 50, 50])
     upper_red1 = np.array([10, 255, 255])
@@ -45,18 +45,18 @@ for idx, mask_path in enumerate(masks_paths, start=1):
     if cv2.countNonZero(thresh) == 0:
         txt_name = base_name[:-4] + ".txt"
         caminho_txt = os.path.join(MASK_YOLO_DIR, txt_name)
-        open(caminho_txt, 'w').close() 
-        continue 
+        open(caminho_txt, 'w').close()
+        continue
 
     # Encontra os contornos na máscara que contém APENAS o que era vermelho
     contours, _ = cv2.findContours(thresh, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
-                                        
+
     txt_lines = []
     for contour in contours:
         # Filtro de ruído leve (linhas pequenas)
         if cv2.contourArea(contour) < 15:
-            continue    
-        
+            continue
+
         coords = contour.reshape(-1, 2).astype(np.float32)
         coords[:, 0] /= width
         coords[:, 1] /= height
@@ -64,9 +64,9 @@ for idx, mask_path in enumerate(masks_paths, start=1):
         string_pontos = " ".join(f"{val:.6f}" for val in coords.ravel())
         txt_lines.append(f"{CLASS_PIPE_LABEL} {string_pontos}")
 
-    txt_name = base_name[:-4] + ".txt" 
+    txt_name = base_name[:-4] + ".txt"
     caminho_txt = os.path.join(MASK_YOLO_DIR, txt_name)
-    
+
     if txt_lines:
         with open(caminho_txt, "w") as f:
             f.write("\n".join(txt_lines))
@@ -74,4 +74,3 @@ for idx, mask_path in enumerate(masks_paths, start=1):
         open(caminho_txt, 'w').close()
 
 print(f"\nProcesso concluído com sucesso em {time.time() - start_time:.2f} segundos!")
-

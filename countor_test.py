@@ -82,6 +82,6 @@ def gerar_sobreposicao(caminho_mascara, caminho_txt, normalizado=True):
 # === EXECUÇÃO ===
 if __name__ == "__main__":
     gerar_sobreposicao(
-        caminho_mascara="/home/Cake/Documentos/UFRB/TCC/yolo_testes_subpipe/dataset/original_masks/1693574361.444_label.png", 
-        caminho_txt="/home/Cake/Documentos/UFRB/TCC/yolo_testes_subpipe/dataset/yolo_masks/1693574361.444_label.txt", 
+        caminho_mascara="./dataset/subpipe/masks/1693574361.444_label.png",
+        caminho_txt="./dataset/subpipe/yolo_masks/1693574361.444_label.txt",
         normalizado=True)
