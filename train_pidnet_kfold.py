@@ -101,7 +101,7 @@ def main(
     for fold, (train_idx, val_idx) in enumerate(skf.split(x, labels)):
         print(f"--- Iniciando Fold {fold + 1}/{k_folds} ---")
 
-        writer = SummaryWriter(log_dir="runs/pidnet-subpipe")
+        writer = SummaryWriter(log_dir=f"runs/pidnet-fold{fold+1}")
 
         os.makedirs(checkpoint_path, exist_ok=True)
 
@@ -301,9 +301,9 @@ def main(
                     'optimizer_state_dict': optimizer.state_dict(),
                     'iou': best_iou,
                     'dice': epoch_val_dice,
-                }, f"{checkpoint_path}/{model_name}_best_iou.pt")
+                }, f"{checkpoint_path}/{model_name}_fold{fold+1}_best_iou.pt")
 
-                print(f"Novo recorde de IoU. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_best_iou.pt")
+                print(f"Novo recorde de IoU. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_best_iou.pt")
 
             if epoch_val_dice > best_dice:
                 print("Salvar melhor checkpoint:\n")
@@ -315,9 +315,9 @@ def main(
                     'optimizer_state_dict': optimizer.state_dict(),
                     'iou': epoch_val_iou,
                     'dice': best_dice,
-                }, f"{checkpoint_path}/{model_name}_best_dice.pt")
+                }, f"{checkpoint_path}/{model_name}_fold{fold+1}_best_dice.pt")
 
-                print(f"Novo recorde de Dice. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_best_dice.pt")
+                print(f"Novo recorde de Dice. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_best_dice.pt")
 
         writer.close()
 

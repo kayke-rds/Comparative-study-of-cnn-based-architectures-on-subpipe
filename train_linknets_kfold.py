@@ -102,7 +102,7 @@ def main(
     for fold, (train_idx, val_idx) in enumerate(skf.split(x, labels)):
         print(f"--- Iniciando Fold {fold + 1}/{k_folds} ---")
 
-        writer = SummaryWriter(log_dir=f"runs/linknet+{encoder}-subpipe")
+        writer = SummaryWriter(log_dir=f"runs/linknet+{encoder}-fold{fold+1}")
 
         os.makedirs(checkpoint_path, exist_ok=True)
 
