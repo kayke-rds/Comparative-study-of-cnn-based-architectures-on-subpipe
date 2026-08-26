@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 import segmentation_models_pytorch as smp
 from torch.optim import lr_scheduler
-from submini_dataset import SubPipeMiniDataset, transforms_train, transforms_val
+from submini_dataset import SubPipeMiniDataset, transforms_train, transforms_val, conv_bn_to_gn
 
 def parse_args():
 
@@ -47,9 +47,10 @@ def main(
     epochs=10,
     batch_size=4,
     lr=1e-4,
-    checkpoint_path="./models_checkpoints"
+    checkpoint_path="./models_checkpoints",
+    model_name = "linknet"
 ):
-    model_name=f'linknet+{encoder}'
+    model_name=f'linknet+{encoder}+{model_name}'
     pasta_imagens = Path("./dataset/subpipe/images_enhanced")
     pasta_mascaras = Path("./dataset/subpipe/masks")
 
@@ -102,7 +103,7 @@ def main(
     for fold, (train_idx, val_idx) in enumerate(skf.split(x, labels)):
         print(f"--- Iniciando Fold {fold + 1}/{k_folds} ---")
 
-        writer = SummaryWriter(log_dir=f"runs/linknet+{encoder}-fold{fold+1}")
+        writer = SummaryWriter(log_dir=f"runs/linknet+{encoder}-subpipe-kfolds-group_norm/linknet+{encoder}-fold{fold+1}")
 
         os.makedirs(checkpoint_path, exist_ok=True)
 
@@ -155,6 +156,9 @@ def main(
         )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        conv_bn_to_gn(model, num_groups=32)
+
         print(f"Treinando no dispositivo {device}")
 
         model = model.to(device)
@@ -162,7 +166,7 @@ def main(
         criterion_focal = smp.losses.FocalLoss(mode='binary', alpha=0.5, gamma=2.0)
         criterion_dice = smp.losses.DiceLoss(mode='binary')
 
-        batch_size_target = 32
+        batch_size_target = 16
         acumulation_steps = int(batch_size_target/batch_size)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=(acumulation_steps)**0.5*lr, weight_decay=1e-4)
@@ -328,6 +332,18 @@ def main(
 
                 print(f"Novo recorde de Dice. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_best_dice.pt")
 
+            if i+1 == epochs:
+                print("Salvar último checkpoint:\n")
+
+                torch.save({
+                    'epoch': i + 1,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'iou': epoch_val_iou,
+                    'dice': epoch_val_dice,
+                }, f"{checkpoint_path}/{model_name}_fold{fold+1}_last.pt")
+
+                print(f"Último checkpoint. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_last.pt")
         writer.close()
 
 if __name__ == "__main__":

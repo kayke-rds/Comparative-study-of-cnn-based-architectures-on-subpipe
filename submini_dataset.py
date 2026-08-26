@@ -2,6 +2,7 @@ import cv2
 import torch
 import albumentations as A
 import numpy as np
+import torch.nn as nn
 from albumentations.pytorch import ToTensorV2
 from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import Dataset, DataLoader
@@ -14,6 +15,34 @@ from torch.optim import lr_scheduler
 
 
 IMAGE_SIZE = 640
+
+def conv_bn_to_gn(model, num_groups=32):
+    """
+    Varre o modelo recursivamente e substitui BatchNorm2d por GroupNorm.
+    Ajusta os grupos se o número de canais não for divisível por 32.
+    """
+    for name, child in model.named_children():
+        if isinstance(child, nn.BatchNorm2d):
+            channels = child.num_features
+
+            # Se os canais forem divisíveis pelo número de grupos ideal, usa ele.
+            # Caso contrário, tenta reduzir os grupos ou usa GroupNorm por canal (InstanceNorm equivalente)
+            if channels % num_groups == 0:
+                groups = num_groups
+            elif channels % 16 == 0:
+                groups = 16
+            elif channels % 8 == 0:
+                groups = 8
+            else:
+                groups = 1 # Se for um número ímpar ou quebrado, age como LayerNorm/InstanceNorm
+
+            # Substitui a camada
+            setattr(model, name, nn.GroupNorm(num_groups=groups, num_channels=channels))
+        else:
+            # Aplica recursivamente nos blocos internos
+            conv_bn_to_gn(child, num_groups)
+
+
 
 def transforms_train(img_size=IMAGE_SIZE):
    return A.Compose([
@@ -37,7 +66,7 @@ def transforms_train(img_size=IMAGE_SIZE):
     A.OneOf(list([
         A.MotionBlur(p=0.2),
         A.GaussianBlur(blur_limit=3, p=0.2),
-        A.GaussNoise(std_range=(10.0, 50.0), p=0.2),
+        A.GaussNoise(std_range=(0.015, 0.03), p=0.2),
     ]), p=0.4),
 
     A.Normalize(mean=(0.2966203333630588, 0.49576322543141343, 0.5093575720862408), std=(0.06910253572016575, 0.06837226079728694, 0.164256980753242)),
@@ -86,7 +115,6 @@ class SubPipeMiniDataset(Dataset):
         return image, mask
 
 if __name__ == "__main__":
-    # Defina os diretórios (substitua pelos seus caminhos reais)
     pasta_imagens = Path("./dataset/subpipe/images_enhanced")
     pasta_mascaras = Path("./dataset/subpipe/masks")
 
@@ -94,18 +122,14 @@ if __name__ == "__main__":
     y_list = []
     areas_list = []
 
-    # Extensões válidas para as imagens
     extensoes_validas = {'.jpg', '.jpeg', '.png'}
 
     print("Lendo diretórios e calculando áreas das máscaras...")
 
-    # Iterar sobre todos os arquivos na pasta de imagens
     for img_path in pasta_imagens.iterdir():
         if img_path.suffix.lower() not in extensoes_validas:
             continue
 
-        # Presumindo que a máscara tem o mesmo nome da imagem, mas extensão .png
-        # Ex: img_path = "imagem_01.jpg" -> mask_path = "imagem_01.png"
         nome_base = img_path.stem
         mask_path = pasta_mascaras / f"{nome_base}_label.png"
 
@@ -113,27 +137,21 @@ if __name__ == "__main__":
             print(f"Aviso: Máscara não encontrada para {img_path.name}. Ignorando.")
             continue
 
-        # Carregar a máscara em tons de cinza para calcular a área
         mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
         if mask is None:
             print(f"Aviso: Erro ao ler a máscara {mask_path.name}. Ignorando.")
             continue
 
-        # Calcular a área (quantidade de pixels maiores que 0, ou seja, tubulação)
         area = np.sum(mask > 0)
 
         x_list.append(str(img_path))
         y_list.append(str(mask_path))
         areas_list.append(area)
 
-    # 1. Converter listas para arrays do NumPy (necessário para o K-Fold do sklearn)
     x = np.array(x_list)
     y_paths = np.array(y_list)
     areas = np.array(areas_list)
 
-    # 2. Criar as classes (labels) para estratificação
-    # Usamos np.percentile para encontrar os cortes que dividem o dataset em 4 partes iguais
-    # Ex: 25% menores tubulações, 25% médias-menores, 25% médias-maiores, 25% maiores.
     cortes = np.percentile(areas, [25, 50, 75])
 
     # np.digitize pega a área de cada imagem e diz em qual "balde" (0, 1, 2, ou 3) ela caiu
@@ -144,11 +162,9 @@ if __name__ == "__main__":
     for i in range(len(cortes) + 1):
         print(f"Classe {i}: {np.sum(labels == i)} imagens")
 
-    # 3. Configurar o Stratified k-Fold
     k_folds = 5
     skf = StratifiedKFold(n_splits=k_folds, shuffle=True, random_state=42)
 
-    # 4. Loop de Treinamento e Validação
     for fold, (train_idx, val_idx) in enumerate(skf.split(x, labels)):
         print(f"--- Iniciando Fold {fold + 1}/{k_folds} ---")
         img_size=640

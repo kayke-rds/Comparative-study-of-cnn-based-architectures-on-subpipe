@@ -11,7 +11,7 @@ from pathlib import Path
 from fast_scnn_tramac.models.fast_scnn import FastSCNN
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim import lr_scheduler
-from submini_dataset import SubPipeMiniDataset, transforms_train, transforms_val
+from submini_dataset import SubPipeMiniDataset, transforms_train, transforms_val, conv_bn_to_gn
 
 def parse_args():
 
@@ -100,7 +100,7 @@ def main(
     for fold, (train_idx, val_idx) in enumerate(skf.split(x, labels)):
         print(f"--- Iniciando Fold {fold + 1}/{k_folds} ---")
 
-        writer = SummaryWriter(log_dir=f"runs/fast-scnn-fold{fold+1}")
+        writer = SummaryWriter(log_dir=f"runs/fast-scnn-subpipe-kfolds-group_norm/fast-scnn-fold{fold+1}")
 
         os.makedirs(checkpoint_path, exist_ok=True)
 
@@ -138,6 +138,9 @@ def main(
         )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        conv_bn_to_gn(model, num_groups=32)
+
         print(f"Treinando no dispositivo {device}")
 
         model = model.to(device)
@@ -156,7 +159,7 @@ def main(
         best_iou = 0.0
         best_dice = 0.0
 
-        batch_size_target = 32
+        batch_size_target = 16
         acumulation_steps = int(batch_size_target/batch_size)
 
         for i in range(epochs):
@@ -309,6 +312,19 @@ def main(
                 }, f"{checkpoint_path}/{model_name}_fold{fold+1}_best_dice.pt")
 
                 print(f"Novo recorde de Dice. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_best_dice.pt")
+
+            if i+1 == epochs:
+                print("Salvar último checkpoint:\n")
+
+                torch.save({
+                    'epoch': i + 1,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'iou': epoch_val_iou,
+                    'dice': epoch_val_dice,
+                }, f"{checkpoint_path}/{model_name}_fold{fold+1}_last.pt")
+
+                print(f"Último checkpoint. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_best_dice.pt")
 
         writer.close()
 
