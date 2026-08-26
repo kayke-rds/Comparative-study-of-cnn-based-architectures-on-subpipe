@@ -6,3 +6,4 @@ runs
 scripts_benchmark
 benchmark_data
 perf_list.txt
+models_checkpoints
