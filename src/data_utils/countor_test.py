@@ -79,7 +79,6 @@ def gerar_sobreposicao(caminho_mascara, caminho_txt, normalizado=True):
 
     return sobreposicao
 
-# === EXECUÇÃO ===
 if __name__ == "__main__":
     gerar_sobreposicao(
         caminho_mascara="./dataset/subpipe/masks/1693574361.444_label.png",

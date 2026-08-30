@@ -1,122 +1,55 @@
+import argparse
 import cv2
 import torch
 import albumentations as A
 import numpy as np
-import torch.nn as nn
-from albumentations.pytorch import ToTensorV2
-from sklearn.model_selection import StratifiedKFold
-from torch.utils.data import Dataset, DataLoader
-from pathlib import Path
-from fast_scnn_tramac.models.fast_scnn import FastSCNN
-from torch.utils.tensorboard import SummaryWriter
 import os
 import segmentation_models_pytorch as smp
+from sklearn.model_selection import StratifiedKFold
+from torch.utils.data import DataLoader
+from pathlib import Path
+from semantic_seg_models.fast_scnn_tramac.models.fast_scnn import FastSCNN
+from torch.utils.tensorboard import SummaryWriter
 from torch.optim import lr_scheduler
+from data_utils.submini_dataset import SubPipeMiniDataset, transforms_train, transforms_val, conv_bn_to_gn
+
+def parse_args():
+
+    parser = argparse.ArgumentParser(description="Script com flags e valores.")
+
+    parser.add_argument(
+        "-s", "--img_size", type=int, default=640, help="Tamanho da imagem (padrão: 640x640)"
+    )
+    parser.add_argument(
+        "-n", "--epochs", type=int, default=10, help="Número de épocas (padrão: 10)"
+    )
+    parser.add_argument(
+        "-b", "--batch_size", type=int, default=4, help="Tamanho do batch (padrão: 4)"
+    )
+    parser.add_argument(
+        "-l", "--lr", type=float, default=1e-4, help="Taxa de aprendizado (padrão: 1e-4)"
+    )
+    parser.add_argument(
+        "-c", "--checkpoint_path", type=str, default="./models_checkpoints", help="Caminho para salvar checkpoints (padrão: ./models_checkpoints)"
+    )
+
+    parser.add_argument(
+        "-m", "--model_name", type=str, help="Nome do modelo sem extensão"
+    )
+
+    return parser
 
 
-IMAGE_SIZE = 640
-
-def conv_bn_to_gn(model, num_groups=32):
-    """
-    Varre o modelo recursivamente e substitui BatchNorm2d por GroupNorm.
-    Ajusta os grupos se o número de canais não for divisível por 32.
-    """
-    for name, child in model.named_children():
-        if isinstance(child, nn.BatchNorm2d):
-            channels = child.num_features
-
-            # Se os canais forem divisíveis pelo número de grupos ideal, usa ele.
-            # Caso contrário, tenta reduzir os grupos ou usa GroupNorm por canal (InstanceNorm equivalente)
-            if channels % num_groups == 0:
-                groups = num_groups
-            elif channels % 16 == 0:
-                groups = 16
-            elif channels % 8 == 0:
-                groups = 8
-            else:
-                groups = 1 # Se for um número ímpar ou quebrado, age como LayerNorm/InstanceNorm
-
-            # Substitui a camada
-            setattr(model, name, nn.GroupNorm(num_groups=groups, num_channels=channels))
-        else:
-            # Aplica recursivamente nos blocos internos
-            conv_bn_to_gn(child, num_groups)
-
-
-
-def transforms_train(img_size=IMAGE_SIZE):
-   return A.Compose([
-
-    A.Resize(height=img_size, width=img_size),
-    A.HorizontalFlip(p=0.5),
-    A.VerticalFlip(p=0.5),
-    A.RandomRotate90(p=0.5),
-    A.Affine(translate_percent=0.1, scale=(0.9, 1.1), rotate=(-45, 45), p=0.3),
-
-    A.OneOf(list([
-        A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
-        A.RandomGamma(gamma_limit=(80, 120), p=0.5),
-    ]), p=0.7),
-
-    A.OneOf(list([
-        A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5),
-        A.RGBShift(r_shift_limit=20, g_shift_limit=20, b_shift_limit=20, p=0.5),
-    ]), p=0.5),
-
-    A.OneOf(list([
-        A.MotionBlur(p=0.2),
-        A.GaussianBlur(blur_limit=3, p=0.2),
-        A.GaussNoise(std_range=(0.015, 0.03), p=0.2),
-    ]), p=0.4),
-
-    A.Normalize(mean=(0.2966203333630588, 0.49576322543141343, 0.5093575720862408), std=(0.06910253572016575, 0.06837226079728694, 0.164256980753242)),
-    ToTensorV2(),
-])
-
-def transforms_val(img_size=IMAGE_SIZE):
-   return A.Compose([
-    A.Resize(height=img_size, width=img_size),
-    A.Normalize(mean=(0.2966203333630588, 0.49576322543141343, 0.5093575720862408), std=(0.06910253572016575, 0.06837226079728694, 0.164256980753242)),
-    ToTensorV2(),
-])
-
-class SubPipeMiniDataset(Dataset):
-    def __init__(self, image_paths, mask_paths, transforms=None):
-        self.image_paths = image_paths
-        self.mask_paths = mask_paths
-        self.transforms = transforms
-
-    def __len__(self):
-        return len(self.image_paths)
-
-    def __getitem__(self, idx):
-
-        img_path = str(self.image_paths[idx])
-        image = cv2.imread(img_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        mask_path = str(self.mask_paths[idx])
-
-        mask_img = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-
-        mask = (mask_img > 0).astype(np.float32)
-
-        if self.transforms:
-            augmented = self.transforms(image=image, mask=mask)
-            image = augmented['image']
-            mask = augmented['mask']
-        else:
-            image = torch.from_numpy(image.transpose(2, 0, 1)).float() / 255.0
-            mask = torch.from_numpy(mask).float()
-
-        if len(mask.shape) == 2:
-            mask = mask.unsqueeze(0)
-
-        return image, mask
-
-if __name__ == "__main__":
-    pasta_imagens = Path("./dataset/subpipe/images_enhanced")
-    pasta_mascaras = Path("./dataset/subpipe/masks")
+def main(
+    img_size=640,
+    epochs=10,
+    batch_size=4,
+    lr=1e-4,
+    checkpoint_path="./models_checkpoints",
+    model_name='fast_scnn',
+):
+    pasta_imagens = Path("../UnitedDataset/train/images")
+    pasta_mascaras = Path("../UnitedDataset/train/masks")
 
     x_list = []
     y_list = []
@@ -127,6 +60,7 @@ if __name__ == "__main__":
     print("Lendo diretórios e calculando áreas das máscaras...")
 
     for img_path in pasta_imagens.iterdir():
+        print(f"Processando imagem {img_path.stem}", end="\r")
         if img_path.suffix.lower() not in extensoes_validas:
             continue
 
@@ -154,7 +88,6 @@ if __name__ == "__main__":
 
     cortes = np.percentile(areas, [25, 50, 75])
 
-    # np.digitize pega a área de cada imagem e diz em qual "balde" (0, 1, 2, ou 3) ela caiu
     labels = np.digitize(areas, cortes)
 
     print(f"\nTotal de imagens prontas: {len(x)}")
@@ -167,14 +100,8 @@ if __name__ == "__main__":
 
     for fold, (train_idx, val_idx) in enumerate(skf.split(x, labels)):
         print(f"--- Iniciando Fold {fold + 1}/{k_folds} ---")
-        img_size=640
-        epochs=10
-        batch_size=4
-        lr=1e-4
-        checkpoint_path="./"
-        model_name='scnn_test'
 
-        writer = SummaryWriter(log_dir=f"runs/fast-scnn-teste-fold{fold}")
+        writer = SummaryWriter(log_dir=f"runs/fast-scnn-subpipe-kfolds-group_norm-warmuplr/fast-scnn-fold{fold+1}")
 
         os.makedirs(checkpoint_path, exist_ok=True)
 
@@ -186,12 +113,12 @@ if __name__ == "__main__":
         train_dataset = SubPipeMiniDataset(
             x_train,
             y_train,
-            transforms=transforms_train(IMAGE_SIZE))
+            transforms=transforms_train(img_size))
 
         val_dataset = SubPipeMiniDataset(
             x_val,
             y_val,
-            transforms=transforms_val(IMAGE_SIZE))
+            transforms=transforms_val(img_size))
 
         train_loader = DataLoader(
             dataset=train_dataset,
@@ -212,6 +139,9 @@ if __name__ == "__main__":
         )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        conv_bn_to_gn(model, num_groups=32)
+
         print(f"Treinando no dispositivo {device}")
 
         model = model.to(device)
@@ -220,11 +150,16 @@ if __name__ == "__main__":
         criterion_dice = smp.losses.DiceLoss(mode='binary')
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-        scheduler = lr_scheduler.ReduceLROnPlateau(
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=110, eta_min=1e-6
+        )
+        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=0.01, end_factor=1.0, total_iters=15
+        )
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
-            mode='min',
-            factor=0.1,
-            patience=5,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[15]
         )
 
         best_iou = 0.0
@@ -346,7 +281,7 @@ if __name__ == "__main__":
             epoch_val_precision = total_precision / len(val_loader)
             epoch_val_recall = total_recall / len(val_loader)
 
-            scheduler.step(epoch_val_loss)
+            scheduler.step()
 
             writer.add_scalar("Total loss/Val", epoch_val_loss, i)
             writer.add_scalar("IoU/Val", epoch_val_iou, i)
@@ -366,9 +301,9 @@ if __name__ == "__main__":
                     'optimizer_state_dict': optimizer.state_dict(),
                     'iou': best_iou,
                     'dice': epoch_val_dice,
-                }, f"{checkpoint_path}/{model_name}_best_iou.pt")
+                }, f"{checkpoint_path}/{model_name}_fold{fold+1}_best_iou.pt")
 
-                print(f"Novo recorde de IoU. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_best_iou.pt")
+                print(f"Novo recorde de IoU. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_best_iou.pt")
 
             if epoch_val_dice > best_dice:
                 print("Salvar melhor checkpoint:\n")
@@ -380,8 +315,26 @@ if __name__ == "__main__":
                     'optimizer_state_dict': optimizer.state_dict(),
                     'iou': epoch_val_iou,
                     'dice': best_dice,
-                }, f"{checkpoint_path}/{model_name}_best_dice.pt")
+                }, f"{checkpoint_path}/{model_name}_fold{fold+1}_best_dice.pt")
 
-                print(f"Novo recorde de Dice. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_best_dice.pt")
+                print(f"Novo recorde de Dice. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_best_dice.pt")
+
+            if i+1 == epochs:
+                print("Salvar último checkpoint:\n")
+
+                torch.save({
+                    'epoch': i + 1,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'iou': epoch_val_iou,
+                    'dice': epoch_val_dice,
+                }, f"{checkpoint_path}/{model_name}_fold{fold+1}_last.pt")
+
+                print(f"Último checkpoint. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_best_dice.pt")
 
         writer.close()
+
+if __name__ == "__main__":
+    parser = parse_args()
+    args = parser.parse_args()
+    main(**vars(args))

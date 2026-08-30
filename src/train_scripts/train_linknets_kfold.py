@@ -1,24 +1,26 @@
 import argparse
 import cv2
-import numpy as np
-import os
 import torch
 import albumentations as A
-import segmentation_models_pytorch as smp
-from pathlib import Path
-from torch.optim import lr_scheduler
-from torch.utils.data import DataLoader
-from submini_dataset import SubPipeMiniDataset, transforms_train, transforms_val, conv_bn_to_gn
-from bisenetv2.bisenetv2 import BiSeNetV2
-from torch.utils.tensorboard import SummaryWriter
+import numpy as np
 from sklearn.model_selection import StratifiedKFold
+from torch.utils.data import DataLoader
+from pathlib import Path
+from torch.utils.tensorboard import SummaryWriter
+import os
+import segmentation_models_pytorch as smp
+from torch.optim import lr_scheduler
+from data_utils.submini_dataset import SubPipeMiniDataset, transforms_train, transforms_val, conv_bn_to_gn
 
 def parse_args():
 
     parser = argparse.ArgumentParser(description="Script com flags e valores.")
 
     parser.add_argument(
-        "-s", "--img_size", type=int, default=640, help="Altura da imagem (padrão: 640x640)"
+        "-e", "--encoder", type=str, default='mn4', help="Nome do encoder (padrão: mn4)"
+    )
+    parser.add_argument(
+        "-s", "--img_size", type=int, default=640, help="Tamanho da imagem (padrão: 640x640)"
     )
     parser.add_argument(
         "-n", "--epochs", type=int, default=10, help="Número de épocas (padrão: 10)"
@@ -27,28 +29,30 @@ def parse_args():
         "-b", "--batch_size", type=int, default=4, help="Tamanho do batch (padrão: 4)"
     )
     parser.add_argument(
-        "-l", "--lr", type=float, default=1e-4, help="Taxa de aprendizado (padrão: 1e-4)"
+        "-l", "--lr", type=float, default=5e-5, help="Taxa de aprendizado (padrão: 1e-4)"
     )
     parser.add_argument(
         "-c", "--checkpoint_path", type=str, default="./models_checkpoints", help="Caminho para salvar checkpoints (padrão: ./models_checkpoints)"
     )
+
     parser.add_argument(
         "-m", "--model_name", type=str, help="Nome do modelo sem extensão"
     )
 
     return parser
 
-
 def main(
+    encoder='tu-mobilenetv4_conv_small',
     img_size=640,
     epochs=10,
     batch_size=4,
     lr=5e-5,
     checkpoint_path="./models_checkpoints",
-    model_name='bisenetv2',
+    model_name = "linknet"
 ):
-    pasta_imagens = Path("./dataset/subpipe/images_enhanced")
-    pasta_mascaras = Path("./dataset/subpipe/masks")
+    model_name=f'linknet+{encoder}+{model_name}'
+    pasta_imagens = Path("../UnitedDataset/train/images")
+    pasta_mascaras = Path("../UnitedDataset/train/masks")
 
     x_list = []
     y_list = []
@@ -99,11 +103,27 @@ def main(
     for fold, (train_idx, val_idx) in enumerate(skf.split(x, labels)):
         print(f"--- Iniciando Fold {fold + 1}/{k_folds} ---")
 
-        writer = SummaryWriter(log_dir=f"runs/bisenetv2-subpipe-kfolds-group_norm/bisenetv2-fold{fold+1}")
+        writer = SummaryWriter(log_dir=f"runs/linknet+{encoder}-subpipe-kfolds-group_norm-warmuplr/linknet+{encoder}-fold{fold+1}")
 
         os.makedirs(checkpoint_path, exist_ok=True)
 
-        model = BiSeNetV2(n_classes=1)
+        match encoder:
+            case 'mn4':
+                model = smp.Linknet(
+                    encoder_name="tu-mobilenetv4_conv_small",
+                    encoder_weights="imagenet",
+                    in_channels=3,
+                    classes=1,
+                )
+            case 'mo0':
+                model = smp.Linknet(
+                    encoder_name="mobileone_s0",
+                    encoder_weights="imagenet",
+                    in_channels=3,
+                    classes=1,
+                )
+            case _:
+                raise ValueError(f"Opção de encoder inválida (flag -e), escolha mn4 para mobilenetv4 ou mo0 para mobileone-s0.")
 
         x_train, y_train = x[train_idx], y_paths[train_idx]
         x_val, y_val = x[val_idx], y_paths[val_idx]
@@ -117,7 +137,6 @@ def main(
             x_val,
             y_val,
             transforms=transforms_val(img_size))
-
         train_loader = DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
@@ -147,15 +166,20 @@ def main(
         criterion_focal = smp.losses.FocalLoss(mode='binary', alpha=0.5, gamma=2.0)
         criterion_dice = smp.losses.DiceLoss(mode='binary')
 
-        batch_size_target = 16
+        batch_size_target = 32
         acumulation_steps = int(batch_size_target/batch_size)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=(acumulation_steps)**0.5*lr, weight_decay=1e-4)
-        scheduler = lr_scheduler.ReduceLROnPlateau(
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=110, eta_min=1e-6
+        )
+        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=0.01, end_factor=1.0, total_iters=15
+        )
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
-            mode='min',
-            factor=0.1,
-            patience=5,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[15]
         )
 
         best_iou = 0.0
@@ -165,7 +189,6 @@ def main(
             print(f"Época: {i}\n")
             print("Etapa de Treino:\n")
             model.train()
-            model.aux_mode = 'train'
             sum_train_loss = 0.0
             total_iou = 0.0
             total_dice = 0.0
@@ -179,10 +202,10 @@ def main(
                 images = images.float().to(device)
                 masks = masks.float().to(device)
 
-                outputs = model(images)
+                outputs = model(images).float()
 
-                loss_focal = criterion_focal(outputs[0].float(), masks) + 0.3*(criterion_focal(outputs[1].float(), masks) + criterion_focal(outputs[2].float(), masks) + criterion_focal(outputs[3].float(), masks) + criterion_focal(outputs[4].float(), masks))
-                loss_dice = criterion_dice(outputs[0].float(), masks) + 0.3*(criterion_dice(outputs[1].float(), masks) + criterion_dice(outputs[2].float(), masks) + criterion_dice(outputs[3].float(), masks) + criterion_dice(outputs[4].float(), masks))
+                loss_focal = criterion_focal(outputs, masks)
+                loss_dice = criterion_dice(outputs, masks)
                 loss = (0.6*loss_focal + 0.4*loss_dice)
                 loss_scaled = loss/acumulation_steps
 
@@ -194,7 +217,7 @@ def main(
 
                 sum_train_loss += loss.item()
 
-                preds = (torch.sigmoid(outputs[0]) > 0.5).float()
+                preds = (torch.sigmoid(outputs) > 0.5).float()
 
                 true_positive = torch.sum(preds * masks)
                 false_positive = torch.sum(preds * (1 - masks))
@@ -230,14 +253,13 @@ def main(
 
             print("Etapa de validação:\n")
             model.eval()
-            model.aux_mode = 'eval'
             running_val_loss = 0.0
             total_iou = 0.0
             total_dice = 0.0
             total_precision = 0.0
             total_recall = 0.0
-            c = 0
 
+            c = 0
             with torch.no_grad():
                 for images, masks in val_loader:
                     print(f"Batch {c} de {len(val_loader)}", end='\r')
@@ -245,11 +267,11 @@ def main(
                     images = images.float().to(device)
                     masks = masks.float().to(device)
 
-                    outputs = model(images)[0].float()
+                    outputs = model(images).float()
 
                     loss_focal = criterion_focal(outputs, masks)
                     loss_dice = criterion_dice(outputs, masks)
-                    loss = 0.6*loss_focal + 0.4*loss_dice
+                    loss = (0.6*loss_focal + 0.4*loss_dice)
                     running_val_loss += loss.item()
 
                     preds = (torch.sigmoid(outputs) > 0.5).float()
@@ -277,7 +299,7 @@ def main(
             epoch_val_precision = total_precision / len(val_loader)
             epoch_val_recall = total_recall / len(val_loader)
 
-            scheduler.step(epoch_val_loss)
+            scheduler.step()
 
             writer.add_scalar("Total loss/Val", epoch_val_loss, i)
             writer.add_scalar("IoU/Val", epoch_val_iou, i)
@@ -315,21 +337,19 @@ def main(
 
                 print(f"Novo recorde de Dice. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_best_dice.pt")
 
-                if i+1 == epochs:
-                    print("Salvar último checkpoint:\n")
+            if i+1 == epochs:
+                print("Salvar último checkpoint:\n")
 
-                    torch.save({
-                        'epoch': i + 1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'iou': epoch_val_iou,
-                        'dice': epoch_val_dice,
-                    }, f"{checkpoint_path}/{model_name}_fold{fold+1}_last.pt")
+                torch.save({
+                    'epoch': i + 1,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'iou': epoch_val_iou,
+                    'dice': epoch_val_dice,
+                }, f"{checkpoint_path}/{model_name}_fold{fold+1}_last.pt")
 
-                    print(f"Último checkpoint. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_best_dice.pt")
-
+                print(f"Último checkpoint. Modelo salvo em: {os.path.join(checkpoint_path, model_name)}_fold{fold+1}_last.pt")
         writer.close()
-
 
 if __name__ == "__main__":
     parser = parse_args()

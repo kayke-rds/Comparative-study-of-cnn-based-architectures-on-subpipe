@@ -70,8 +70,8 @@ def process_dataset_combined(input_dir: str, output_dir: str):
 
 if __name__ == "__main__":
     # Configure os caminhos do seu dataset
-    DATASET_ORIGINAL = "./dataset/subpipe/images"
-    DATASET_SAIDA = "./dataset/subpipe/images_enhanced"
+    DATASET_ORIGINAL = "../MarinaPipeFiltered/images"
+    DATASET_SAIDA = "../MarinaPipeFilteredEnhanced/images"
 
     process_dataset_combined(DATASET_ORIGINAL, DATASET_SAIDA)
     print("Dataset combinando Vermelho + CLAHE gerado com sucesso!")

@@ -5,8 +5,8 @@ import albumentations as A
 import segmentation_models_pytorch as smp
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
-from dataset_utils.submini_dataset import SubPipeMiniDataset, divideDataset, transforms_train, transforms_val
-from fast_scnn_tramac.models.fast_scnn import FastSCNN
+from data_utils.submini_dataset import SubPipeMiniDataset, divideDataset, transforms_train, transforms_val
+from bisenetv2.bisenetv2 import BiSeNetV2
 from torch.utils.tensorboard import SummaryWriter
 
 def parse_args():
@@ -14,7 +14,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Script com flags e valores.")
 
     parser.add_argument(
-        "-s", "--img_size", type=int, default=640, help="Tamanho da imagem (padrão: 640x640)"
+        "-s", "--img_size", type=int, default=640, help="Altura da imagem (padrão: 640x640)"
     )
     parser.add_argument(
         "-n", "--epochs", type=int, default=10, help="Número de épocas (padrão: 10)"
@@ -28,7 +28,6 @@ def parse_args():
     parser.add_argument(
         "-c", "--checkpoint_path", type=str, default="./models_checkpoints", help="Caminho para salvar checkpoints (padrão: ./models_checkpoints)"
     )
-
     parser.add_argument(
         "-m", "--model_name", type=str, help="Nome do modelo sem extensão"
     )
@@ -41,15 +40,15 @@ def main(
     epochs=10,
     batch_size=4,
     lr=1e-4,
-    checkpoint_path="./",
-    model_name='model',
+    checkpoint_path="./models_checkpoints",
+    model_name='bisenetv2',
 ):
 
-    writer = SummaryWriter(log_dir="runs/fast-scnn-subpipe")
+    writer = SummaryWriter(log_dir="runs/bisenetv2-subpipe")
 
     os.makedirs(checkpoint_path, exist_ok=True)
 
-    model = FastSCNN(num_classes=1, aux=True)
+    model = BiSeNetV2(n_classes=1)
 
     train_imgs, val_imgs, train_labels, val_labels = divideDataset()
 
@@ -91,7 +90,10 @@ def main(
     criterion_focal = smp.losses.FocalLoss(mode='binary', alpha=0.5, gamma=2.0)
     criterion_dice = smp.losses.DiceLoss(mode='binary')
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    batch_size_target = 32
+    acumulation_steps = int(batch_size_target/batch_size)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=(acumulation_steps)**0.5*lr, weight_decay=1e-4)
     scheduler = lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode='min',
@@ -102,13 +104,11 @@ def main(
     best_iou = 0.0
     best_dice = 0.0
 
-    batch_size_target = 32
-    acumulation_steps = int(batch_size_target/batch_size)
-
     for i in range(epochs):
         print(f"Época: {i}\n")
         print("Etapa de Treino:\n")
         model.train()
+        model.aux_mode = 'train'
         sum_train_loss = 0.0
         total_iou = 0.0
         total_dice = 0.0
@@ -122,10 +122,10 @@ def main(
             images = images.float().to(device)
             masks = masks.float().to(device)
 
-            outputs = model(images).float()
+            outputs = model(images)
 
-            loss_focal = 0.7*criterion_focal(outputs[0], masks) + 0.3*criterion_focal(outputs[1], masks)
-            loss_dice = 0.7*criterion_dice(outputs[0], masks) + 0.3*criterion_dice(outputs[1], masks)
+            loss_focal = criterion_focal(outputs[0].float(), masks) + 0.3*(criterion_focal(outputs[1].float(), masks) + criterion_focal(outputs[2].float(), masks) + criterion_focal(outputs[3].float(), masks) + criterion_focal(outputs[4].float(), masks))
+            loss_dice = criterion_dice(outputs[0].float(), masks) + 0.3*(criterion_dice(outputs[1].float(), masks) + criterion_dice(outputs[2].float(), masks) + criterion_dice(outputs[3].float(), masks) + criterion_dice(outputs[4].float(), masks))
             loss = (0.6*loss_focal + 0.4*loss_dice)
             loss_scaled = loss/acumulation_steps
 
@@ -168,17 +168,19 @@ def main(
         writer.add_scalar("Precision/Train", epoch_train_precision, i)
         writer.add_scalar("Recall/Train", epoch_train_recall, i)
 
-        print(f"\n\nPerda da Época {i}: {epoch_train_loss}\n")
+        print(f"\n\n[Resultados] Loss Train: {epoch_train_loss:.4f} | IoU Train: {epoch_train_iou:.4f} | Dice Train: {epoch_train_dice:.4f} | Precison Train: {epoch_train_precision:.4f} | Recall Train: {epoch_train_recall:.4f}")
+
 
         print("Etapa de validação:\n")
         model.eval()
+        model.aux_mode = 'eval'
         running_val_loss = 0.0
         total_iou = 0.0
         total_dice = 0.0
         total_precision = 0.0
         total_recall = 0.0
-
         c = 0
+
         with torch.no_grad():
             for images, masks in val_loader:
                 print(f"Batch {c} de {len(val_loader)}", end='\r')
@@ -190,7 +192,7 @@ def main(
 
                 loss_focal = criterion_focal(outputs, masks)
                 loss_dice = criterion_dice(outputs, masks)
-                loss = (0.6*loss_focal + 0.4*loss_dice)
+                loss = 0.6*loss_focal + 0.4*loss_dice
                 running_val_loss += loss.item()
 
                 preds = (torch.sigmoid(outputs) > 0.5).float()
@@ -226,7 +228,7 @@ def main(
         writer.add_scalar("Precision/Val", epoch_val_precision, i)
         writer.add_scalar("Recall/Val", epoch_val_recall, i)
 
-        print(f"\n\n[Resultados] Loss Treino: {epoch_train_loss:.4f} | Loss Val: {epoch_val_loss:.4f} | IoU Val: {epoch_val_iou:.4f} | Dice Val: {epoch_val_dice:.4f}")
+        print(f"\n\n[Resultados] Loss Val: {epoch_val_loss:.4f} | IoU Val: {epoch_val_iou:.4f} | Dice Val: {epoch_val_dice:.4f} | Precison Val: {epoch_val_precision:.4f} | Recall Val: {epoch_val_recall:.4f}")
 
         if epoch_val_iou > best_iou:
             print("Salvar melhor checkpoint:\n")

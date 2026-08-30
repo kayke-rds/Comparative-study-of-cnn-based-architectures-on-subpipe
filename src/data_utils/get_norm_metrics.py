@@ -58,7 +58,7 @@ def calcular_estatisticas_dataset(pasta_imagens, caminho_saida_txt):
 
 # ==========================================
 
-pasta_dataset = "./dataset/subpipe/images_enhanced"
-arquivo_saida = "enhanced_images_norm_metrics.txt"
+pasta_dataset = "../UnitedDataset/all_images"
+arquivo_saida = "enhanced_images_united_norm_metrics.txt"
 
 calcular_estatisticas_dataset(pasta_dataset, arquivo_saida)

@@ -10,7 +10,7 @@ from sklearn.model_selection import StratifiedKFold
 from torch.optim import lr_scheduler
 from pathlib import Path
 from torch.utils.data import DataLoader
-from submini_dataset import SubPipeMiniDataset, transforms_train, transforms_val, conv_bn_to_gn
+from data_utils.submini_dataset import SubPipeMiniDataset, transforms_train, transforms_val, conv_bn_to_gn
 from pidnet.pidnet import PIDNet
 from torch.utils.tensorboard import SummaryWriter
 
@@ -28,7 +28,7 @@ def parse_args():
         "-b", "--batch_size", type=int, default=4, help="Tamanho do batch (padrão: 4)"
     )
     parser.add_argument(
-        "-l", "--lr", type=float, default=1e-4, help="Taxa de aprendizado (padrão: 1e-4)"
+        "-l", "--lr", type=float, default=1e-5, help="Taxa de aprendizado (padrão: 1e-4)"
     )
     parser.add_argument(
         "-c", "--checkpoint_path", type=str, default="./models_checkpoints", help="Caminho para salvar checkpoints (padrão: ./models_checkpoints)"
@@ -45,7 +45,7 @@ def main(
     img_size=640,
     epochs=10,
     batch_size=4,
-    lr=1e-4,
+    lr=1e-5,
     checkpoint_path="./models_checkpoints",
     model_name='pidnet-kfold',
 ):
@@ -101,7 +101,7 @@ def main(
     for fold, (train_idx, val_idx) in enumerate(skf.split(x, labels)):
         print(f"--- Iniciando Fold {fold + 1}/{k_folds} ---")
 
-        writer = SummaryWriter(log_dir=f"runs/pidnet-kfolds-group_norm/pidnet-fold{fold+1}")
+        writer = SummaryWriter(log_dir=f"runs/pidnet-kfolds-group_norm-warmuplr/pidnet-fold{fold+1}")
 
         os.makedirs(checkpoint_path, exist_ok=True)
 
@@ -149,15 +149,20 @@ def main(
         criterion_focal = smp.losses.FocalLoss(mode='binary', alpha=0.5, gamma=2.0)
         criterion_dice = smp.losses.DiceLoss(mode='binary')
 
-        batch_size_target = 16
+        batch_size_target = 32
         acumulation_steps = int(batch_size_target/batch_size)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=(acumulation_steps)**0.5*lr, weight_decay=1e-4)
-        scheduler = lr_scheduler.ReduceLROnPlateau(
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=110, eta_min=1e-6
+        )
+        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=0.01, end_factor=1.0, total_iters=15
+        )
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer,
-            mode='min',
-            factor=0.1,
-            patience=5,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[15]
         )
 
         best_iou = 0.0
@@ -284,7 +289,7 @@ def main(
             epoch_val_precision = total_precision / len(val_loader)
             epoch_val_recall = total_recall / len(val_loader)
 
-            scheduler.step(epoch_val_loss)
+            scheduler.step()
 
             writer.add_scalar("Total loss/Val", epoch_val_loss, i)
             writer.add_scalar("IoU/Val", epoch_val_iou, i)

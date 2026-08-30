@@ -4,8 +4,8 @@ import time
 import cv2
 import numpy as np
 
-SEGMENTATION_DIR = "./dataset/subpipe/masks"
-MASK_YOLO_DIR = './dataset/subpipe/yolo_masks'
+SEGMENTATION_DIR = "../MarinaPipeFilteredEnhanced/masks"
+MASK_YOLO_DIR = '../MarinaPipeFilteredEnhanced/yolo_masks'
 CLASS_PIPE_LABEL = 0
 
 os.makedirs(MASK_YOLO_DIR, exist_ok=True)
