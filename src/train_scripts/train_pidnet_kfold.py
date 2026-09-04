@@ -6,12 +6,13 @@ import numpy as np
 import os
 import segmentation_models_pytorch as smp
 import torch.nn.functional as F
+import torch.nn as nn
 from sklearn.model_selection import StratifiedKFold
 from torch.optim import lr_scheduler
 from pathlib import Path
 from torch.utils.data import DataLoader
 from data_utils.submini_dataset import SubPipeMiniDataset, transforms_train, transforms_val, conv_bn_to_gn
-from pidnet.pidnet import PIDNet
+from semantic_seg_models.pidnet.pidnet import PIDNet
 from torch.utils.tensorboard import SummaryWriter
 
 def parse_args():
@@ -28,7 +29,7 @@ def parse_args():
         "-b", "--batch_size", type=int, default=4, help="Tamanho do batch (padrão: 4)"
     )
     parser.add_argument(
-        "-l", "--lr", type=float, default=1e-5, help="Taxa de aprendizado (padrão: 1e-4)"
+        "-l", "--lr", type=float, default=1e-5, help="Taxa de aprendizado (padrão: 1e-5)"
     )
     parser.add_argument(
         "-c", "--checkpoint_path", type=str, default="./models_checkpoints", help="Caminho para salvar checkpoints (padrão: ./models_checkpoints)"
@@ -41,6 +42,49 @@ def parse_args():
     return parser
 
 
+def extrair_bordas(mascara_original):
+    """
+    mascara_original: Tensor [Batch, H, W] contendo os IDs das classes.
+    Retorna: Tensor [Batch, 1, H//8, W//8] binarizado (0 e 1) na resolução da PIDNet.
+    """
+
+    if mascara_original.dim() == 3:
+        x = mascara_original.unsqueeze(1).float()
+    else:
+        x = mascara_original.float()
+
+    H_down, W_down = x.shape[-2] // 8, x.shape[-1] // 8
+    x_down = F.interpolate(x, size=(H_down, W_down), mode='nearest')
+
+    kernel = torch.tensor([[[[-1, -1, -1],
+                             [-1,  8, -1],
+                             [-1, -1, -1]]]], dtype=torch.float32, device=x.device)
+
+    gradiente = F.conv2d(x_down, kernel, padding=1)
+
+    bordas_binarias = (gradiente != 0).float()
+
+    return bordas_binarias
+
+
+class BoundaryLoss(nn.Module):
+    def __init__(self):
+        super(BoundaryLoss, self).__init__()
+
+    def forward(self, out_boundary, target_boundary):
+        """
+        out_boundary: Saída da ramificação D [Batch, 1, H, W]
+        target_boundary: Máscara real de bordas binarizada [Batch, H, W] ou [Batch, 1, H, W]
+        """
+        if target_boundary.dim() == 3:
+            target_boundary = target_boundary.unsqueeze(1)
+
+        target_boundary = target_boundary.float()
+
+        return F.binary_cross_entropy_with_logits(out_boundary, target_boundary, reduction='mean')
+
+
+
 def main(
     img_size=640,
     epochs=10,
@@ -49,8 +93,8 @@ def main(
     checkpoint_path="./models_checkpoints",
     model_name='pidnet-kfold',
 ):
-    pasta_imagens = Path("./dataset/subpipe/images_enhanced")
-    pasta_mascaras = Path("./dataset/subpipe/masks")
+    pasta_imagens = Path("../UnitedDataset/train/images")
+    pasta_mascaras = Path("../UnitedDataset/train/masks")
 
     x_list = []
     y_list = []
@@ -101,7 +145,7 @@ def main(
     for fold, (train_idx, val_idx) in enumerate(skf.split(x, labels)):
         print(f"--- Iniciando Fold {fold + 1}/{k_folds} ---")
 
-        writer = SummaryWriter(log_dir=f"runs/pidnet-kfolds-group_norm-warmuplr/pidnet-fold{fold+1}")
+        writer = SummaryWriter(log_dir=f"runs/pidnet-kfolds-group_norm-warmuplr-no_border_loss/pidnet-fold{fold+1}")
 
         os.makedirs(checkpoint_path, exist_ok=True)
 
@@ -148,6 +192,7 @@ def main(
 
         criterion_focal = smp.losses.FocalLoss(mode='binary', alpha=0.5, gamma=2.0)
         criterion_dice = smp.losses.DiceLoss(mode='binary')
+        criterion_boundary = BoundaryLoss()
 
         batch_size_target = 32
         acumulation_steps = int(batch_size_target/batch_size)
@@ -190,13 +235,18 @@ def main(
 
                 out0 = F.interpolate(outputs[0].float(), size=(img_size, img_size), mode='bilinear', align_corners=True)
                 out1 = F.interpolate(outputs[1].float(), size=(img_size, img_size), mode='bilinear', align_corners=True)
-                out2 = F.interpolate(outputs[2].float(), size=(img_size, img_size), mode='bilinear', align_corners=True)
+                #out2 = F.interpolate(outputs[2].float(), size=(img_size, img_size), mode='bilinear', align_corners=True)
+                #out2 = outputs[2]
 
-                loss_focal = criterion_focal(out1, masks) + 0.6*criterion_focal(out2, masks) + 0.4*criterion_focal(out0, masks)
-                loss_dice = criterion_dice(out1, masks) + 0.6*criterion_dice(out2, masks) + 0.4*criterion_dice(out0, masks)
-                loss = (0.6*loss_focal + 0.4*loss_dice)
-                loss_scaled = loss/acumulation_steps
+                loss_main = 0.6 * criterion_focal(out1, masks) + 0.4 * criterion_dice(out1, masks)
 
+                loss_aux = 0.6 * criterion_focal(out0, masks) + 0.4 * criterion_dice(out0, masks)
+
+                #loss_border = criterion_boundary(out2, extrair_bordas(masks))
+
+                loss = (1.0 * loss_main) + (0.4 * loss_aux) #+ (2.0 * loss_border)
+
+                loss_scaled = loss / acumulation_steps
                 loss_scaled.backward()
 
                 if (c) % acumulation_steps == 0 or c == len(train_loader):

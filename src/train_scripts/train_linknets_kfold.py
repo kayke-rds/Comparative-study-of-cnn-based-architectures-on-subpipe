@@ -29,7 +29,7 @@ def parse_args():
         "-b", "--batch_size", type=int, default=4, help="Tamanho do batch (padrão: 4)"
     )
     parser.add_argument(
-        "-l", "--lr", type=float, default=5e-5, help="Taxa de aprendizado (padrão: 1e-4)"
+        "-l", "--lr", type=float, default=5e-5, help="Taxa de aprendizado (padrão: 5e-5)"
     )
     parser.add_argument(
         "-c", "--checkpoint_path", type=str, default="./models_checkpoints", help="Caminho para salvar checkpoints (padrão: ./models_checkpoints)"
