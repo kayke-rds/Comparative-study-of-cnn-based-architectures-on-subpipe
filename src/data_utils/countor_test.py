@@ -1,15 +1,42 @@
+import argparse
 import cv2
 import numpy as np
 
 
-def ler_contornos_txt(caminho_txt, largura, altura, normalizado=True):
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Script de teste de contorno de label yolo."
+        )
+    )
+
+    parser.add_argument(
+        "-pl",
+        "--path_label",
+        type=str,
+        required=True,
+        help="Pasta com txt yolo.",
+    )
+
+    parser.add_argument(
+        "-pm",
+        "--path_mask",
+        type=str,
+        required=True,
+        help="Pasta com as máscaras em imagem.",
+    )
+
+    return parser
+
+
+def ler_contornos_txt(path_label, largura, altura, normalizado=True):
     """Lê o arquivo .txt linha por linha e retorna uma lista de contornos,
 
     permitindo múltiplos objetos por imagem.
     """
     contornos = []
 
-    with open(caminho_txt, "r") as f:
+    with open(path_label, "r") as f:
         for linha in f:
             linha = linha.strip()
             if not linha:
@@ -17,39 +44,33 @@ def ler_contornos_txt(caminho_txt, largura, altura, normalizado=True):
 
             partes = linha.split()
 
-            # Pula o primeiro elemento (classe) e pega apenas as coordenadas
             coords_str = partes[1:]
 
-            # Valida se há pares completos de coordenadas (x, y)
             if len(coords_str) < 4 or len(coords_str) % 2 != 0:
                 continue
 
-            # Converte para float32 e molda em pares (N, 2)
             coords = np.array(coords_str, dtype=np.float32).reshape(-1, 2)
 
-            # Desnormaliza se necessário
             if normalizado:
                 coords[:, 0] *= largura
                 coords[:, 1] *= altura
 
-            # Formata no padrão exigido pelo OpenCV: np.int32 com shape (N, 1, 2)
             contorno = coords.astype(np.int32).reshape(-1, 1, 2)
             contornos.append(contorno)
 
     return contornos
 
 
-def gerar_sobreposicao(caminho_mascara, caminho_txt, normalizado=True):
-    mascara = cv2.imread(caminho_mascara, cv2.IMREAD_GRAYSCALE)
+def gerar_sobreposicao(path_mask, path_label, normalizado=True):
+    mascara = cv2.imread(path_mask, cv2.IMREAD_GRAYSCALE)
     if mascara is None:
         raise FileNotFoundError(
-            f"Não foi possível carregar a imagem: {caminho_mascara}"
+            f"Não foi possível carregar a imagem: {path_mask}"
         )
 
     altura, largura = mascara.shape
 
-    # Agora obtemos uma LISTA de contornos (um para cada linha do .txt)
-    contornos = ler_contornos_txt(caminho_txt, largura, altura, normalizado)
+    contornos = ler_contornos_txt(path_label, largura, altura, normalizado)
 
     if not contornos:
         raise ValueError("O arquivo .txt não contém contornos válidos.")
@@ -57,19 +78,15 @@ def gerar_sobreposicao(caminho_mascara, caminho_txt, normalizado=True):
     sobreposicao = cv2.cvtColor(mascara, cv2.COLOR_GRAY2BGR)
     overlay_transparente = sobreposicao.copy()
 
-    # --- DESENHO DE TODOS OS CONTORNOS ---
 
-    # 1. Preenchimento (Verde): desenha todos os objetos da lista
     cv2.drawContours(
         overlay_transparente, contornos, -1, (0, 255, 0), cv2.FILLED
     )
 
-    # Transparência
     cv2.addWeighted(
         overlay_transparente, 0.35, sobreposicao, 0.65, 0, sobreposicao
     )
 
-    # 2. Bordas (Vermelho): espessura = 2 para todos os contornos
     cv2.drawContours(sobreposicao, contornos, -1, (0, 0, 255), 2, cv2.LINE_AA)
 
     cv2.imwrite("sobreposicao_resultado.png", sobreposicao)
@@ -80,7 +97,6 @@ def gerar_sobreposicao(caminho_mascara, caminho_txt, normalizado=True):
     return sobreposicao
 
 if __name__ == "__main__":
-    gerar_sobreposicao(
-        caminho_mascara="./dataset/subpipe/masks/1693574361.444_label.png",
-        caminho_txt="./dataset/subpipe/yolo_masks/1693574361.444_label.txt",
-        normalizado=True)
+    parser = parse_args()
+    args = parser.parse_args()
+    gerar_sobreposicao(**vars(args))

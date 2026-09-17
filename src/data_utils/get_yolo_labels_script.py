@@ -4,6 +4,13 @@ import time
 import cv2
 import numpy as np
 
+
+# OBS.: Esse Script foi feito para os caminhos específicos do experimento no meu computador. Posteriormente,
+# posso adicionar argumentos de argparse para torná-lo generalizável, mas por enquanto ele ficará exposto desta
+# maneira, se for utilizá-lo, faça as etapas anteriores de obtenção, pré-processamento e divisão do dataset e ajuste os caminhos
+# de acordo com o seu contexto
+
+
 SEGMENTATION_DIR = "../MarinaPipeFilteredEnhanced/masks"
 MASK_YOLO_DIR = '../MarinaPipeFilteredEnhanced/yolo_masks'
 CLASS_PIPE_LABEL = 0
@@ -19,18 +26,17 @@ for idx, mask_path in enumerate(masks_paths, start=1):
     base_name = os.path.basename(mask_path)
     print(f"[{idx}/{len(masks_paths)}] Convertendo: {base_name}...", end="\r")
 
-    # MUDANÇA 1: Carregar como imagem COLORIDA (BGR)
+    # Carregar como imagem COLORIDA (BGR)
     mask_bgr = cv2.imread(mask_path, cv2.IMREAD_COLOR)
     if mask_bgr is None:
         continue
 
     height, width, _ = mask_bgr.shape
 
-    # MUDANÇA 2: Converter para o espaço de cores HSV (muito melhor para isolar o Vermelho)
+    # Converter para o espaço de cores HSV
     hsv = cv2.cvtColor(mask_bgr, cv2.COLOR_BGR2HSV)
 
     # No HSV, o vermelho fica nas extremidades do espectro.
-    # Definimos os limites inferiores e superiores para capturar tons de vermelho.
     lower_red1 = np.array([0, 50, 50])
     upper_red1 = np.array([10, 255, 255])
     lower_red2 = np.array([170, 50, 50])
@@ -41,14 +47,13 @@ for idx, mask_path in enumerate(masks_paths, start=1):
     mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
     thresh = cv2.bitwise_or(mask1, mask2) # Combina as duas faixas de vermelho
 
-    # Se não houver nenhum pixel vermelho na imagem, gera o .txt de background vazio para o YOLO
     if cv2.countNonZero(thresh) == 0:
         txt_name = base_name[:-4] + ".txt"
         caminho_txt = os.path.join(MASK_YOLO_DIR, txt_name)
         open(caminho_txt, 'w').close()
         continue
 
-    # Encontra os contornos na máscara que contém APENAS o que era vermelho
+    # Encontra os contornos na máscara que contém apenas o que era vermelho
     contours, _ = cv2.findContours(thresh, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
 
     txt_lines = []

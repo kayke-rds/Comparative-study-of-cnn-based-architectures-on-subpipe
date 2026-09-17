@@ -1,0 +1,5 @@
+architecture,best_iou_mean,best_iou_std,best_iou_closest_fold,best_iou_closest_value,best_dice_mean,best_dice_std,best_dice_closest_fold,best_dice_closest_value
+fast-scnn,0.738863,0.010416,2,0.744155,0.849790,0.006863,2,0.853313
+bisenet-v2,0.759316,0.012851,2,0.761378,0.863146,0.008308,2,0.864525
+linknet,0.768589,0.010830,4,0.766629,0.869121,0.006959,4,0.867900
+pidnet,0.758245,0.009470,5,0.764078,0.862476,0.006141,5,0.866263

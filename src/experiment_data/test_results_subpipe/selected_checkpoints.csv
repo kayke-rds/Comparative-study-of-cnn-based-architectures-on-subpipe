@@ -1,0 +1,5 @@
+Modelo,Fold,SelectionMetric,SelectionValue,Checkpoint,CheckpointEpoch,CheckpointIoU,CheckpointDice
+FastSCNN,2,iou,0.744155,models_checkpoints/fast-scnn_fold2_best_iou.pt,149,0.7441548647998829,0.8533128334166178
+BiSeNetV2,2,iou,0.761378,models_checkpoints/bisenetv2_fold2_best_iou.pt,136,0.7613781419622407,0.8645254801607078
+LinkNet,4,iou,0.766629,models_checkpoints/linknet_fold4_best_iou.pt,63,0.7666290489543163,0.8679004224549473
+PIDNet,5,iou,0.764078,models_checkpoints/pidnet_fold5_best_iou.pt,134,0.764077732952918,0.8662631115171054

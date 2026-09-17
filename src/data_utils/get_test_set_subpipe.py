@@ -3,6 +3,13 @@ import random
 import shutil
 from pathlib import Path
 
+
+# OBS.: Esse Script foi feito para os caminhos específicos do experimento no meu computador. Posteriormente,
+# posso adicionar argumentos de argparse para torná-lo generalizável, mas por enquanto ele ficará exposto desta
+# maneira, se for utilizá-lo, faça as etapas anteriores de obtenção, pré-processamento e divisão do dataset e ajuste os caminhos
+# de acordo com o seu contexto
+
+
 # 1. Configurações de caminhos de entrada e saída
 base_dir = Path("./dataset/subpipe")
 masks_dir = base_dir / "masks"

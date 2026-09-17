@@ -1,11 +1,39 @@
+import argparse
 import cv2
 import numpy as np
-from sklearn.model_selection import StratifiedKFold
 from pathlib import Path
+from sklearn.model_selection import StratifiedKFold
 
-def main():
-    pasta_imagens = Path("../UnitedDataset/train/images")
-    pasta_mascaras = Path("../UnitedDataset/train/masks")
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Script para criação de yamls que tornem possível treinamento de YOLO em k folds"
+        )
+    )
+
+    parser.add_argument(
+        "-pi",
+        "--path_images",
+        type=str,
+        required=True,
+        help="Pasta com as imagens de teste.",
+    )
+
+    parser.add_argument(
+        "-pm",
+        "--path_masks",
+        type=str,
+        required=True,
+        help="Pasta com as imagens de teste.",
+    )
+
+    return parser
+
+
+def main(path_images, path_masks):
+    pasta_imagens = Path(path_images)
+    pasta_mascaras = Path(path_masks)
 
     x_list = []
     y_list = []
@@ -77,4 +105,6 @@ def main():
         print(f"Fold {fold_num}: {len(train_idx)} treino / {len(val_idx)} val -> {yaml_path}")
 
 if __name__ == "__main__":
-    main()
+    parser = parse_args()
+    args = parser.parse_args()
+    main(**vars(args))

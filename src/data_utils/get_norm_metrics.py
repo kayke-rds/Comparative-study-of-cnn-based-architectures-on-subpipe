@@ -2,6 +2,13 @@ import cv2
 import numpy as np
 from pathlib import Path
 
+
+# OBS.: Esse Script foi feito para os caminhos específicos do experimento no meu computador. Posteriormente,
+# posso adicionar argumentos de argparse para torná-lo generalizável, mas por enquanto ele ficará exposto desta
+# maneira, se for utilizá-lo, faça as etapas anteriores de obtenção, pré-processamento e divisão do dataset e ajuste os caminhos
+# de acordo com o seu contexto
+
+
 def calcular_estatisticas_dataset(pasta_imagens, caminho_saida_txt):
     extensoes_aceitas = {'.jpg', '.jpeg', '.png'}
 
@@ -56,7 +63,6 @@ def calcular_estatisticas_dataset(pasta_imagens, caminho_saida_txt):
     print("Cálculo concluído!")
     print(texto_resultado)
 
-# ==========================================
 
 pasta_dataset = "../UnitedDataset/all_images"
 arquivo_saida = "enhanced_images_united_norm_metrics.txt"

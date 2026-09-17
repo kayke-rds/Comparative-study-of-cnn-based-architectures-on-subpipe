@@ -1,0 +1,2 @@
+Melhor Fold para mAP50(M): Fold 5 com valor de 0.9227
+Melhor Fold para mAP50-95(M): Fold 5 com valor de 0.5477

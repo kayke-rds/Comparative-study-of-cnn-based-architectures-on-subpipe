@@ -1,8 +1,8 @@
 import os
 import cv2
 import numpy as np
-import shutil
 from pathlib import Path
+
 
 def compensate_red_channel(image: np.ndarray) -> np.ndarray:
     """

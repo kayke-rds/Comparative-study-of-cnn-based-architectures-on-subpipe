@@ -9,10 +9,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Script com flags e valores.")
 
     parser.add_argument(
-        "-p", "--path", type=str, help="Caminho para os experimento"
+        "-p", "--path", type=str, help="Caminho para os experimentos."
     )
     parser.add_argument(
-        "-m", "--model_name", type=str, help="Nome do modelo utilizado no experimento"
+        "-m", "--model_name", type=str, help="Nome do modelo utilizado no experimento."
     )
 
     return parser

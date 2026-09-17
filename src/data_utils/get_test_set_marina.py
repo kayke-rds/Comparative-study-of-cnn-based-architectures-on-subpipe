@@ -4,15 +4,19 @@ import shutil
 from pathlib import Path
 from collections import defaultdict
 
+# OBS.: Esse Script foi feito para os caminhos específicos do experimento no meu computador. Posteriormente,
+# posso adicionar argumentos de argparse para torná-lo generalizável, mas por enquanto ele ficará exposto desta
+# maneira, se for utilizá-lo, faça as etapas anteriores de obtenção, pré-processamento e divisão do dataset e ajuste os caminhos
+# de acordo com o seu contexto
+
 # 1. Configurações de caminhos de entrada e saída
 base_dir = Path("../MarinaPipeFilteredEnhanced")
 masks_dir = base_dir / "masks"
 images_dir = base_dir / "images_enhanced"
-yolo_dir = base_dir / "yolo_masks" # Pasta com os txt
+yolo_dir = base_dir / "yolo_masks"
 
 output_dir = Path("../MarinaPipeDivided")
 
-# Criar estrutura train/test
 for split in ["train", "test"]:
     for folder in ["images", "masks", "labels"]:
         (output_dir / split / folder).mkdir(parents=True, exist_ok=True)
